@@ -1,0 +1,24 @@
+name: "Setup Python CI"
+description: "Configure Python environment for CI and install dependencies"
+
+inputs:
+  python-version:
+    description: "Python version to use"
+    required: false
+    default: "3.11"
+
+runs:
+  using: "composite"
+  steps:   
+
+    - name: "Setup Python"
+      uses: actions/setup-python@v5
+      with:
+        python-version: {{ inputs.python-version }} 
+  
+    - name: "Install Dependencies"
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt; fi
+
