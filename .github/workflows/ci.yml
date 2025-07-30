@@ -1,26 +1,25 @@
 name: "🛡️ Validate Central CI/CD"
 
-on: 
-    pull_request:
-        branches: [develop, main]
-    push:
-        branches: [develop]
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
 
 jobs:
-    yamllint:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - name: "Validate YAML files"
-              run: |
-                sudo apt-get install yamllint
-                echo "Validating YAML files..."
-                yamllint .
-    docs:
-        runs-on: ubuntu-latest
-        steps:
-            
-            - uses: actions/checkout@v4
-            
-            - name: Validar Markdown
-              uses: DavidAnson/markdownlint-cli2-action@v15
+  yamllint: 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Validate YAML files"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint
+          yamllint .
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar Markdown
+        uses: DavidAnson/markdownlint-cli2-action@v15
