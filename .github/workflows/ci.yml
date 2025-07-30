@@ -12,7 +12,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - name: "Validate YAML files"
-              uses: actions/yaml-lint-action@v2
+              uses: actionshub/yamllint@v1
 
     lint-python:
         runs-on: ubuntu-latest
