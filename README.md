@@ -56,6 +56,14 @@ pytest quando existe um diretório `tests/`. Ela usa o Python ativo no runner;
 seu input `python-version` é mantido por compatibilidade e não seleciona o
 interpretador. Configure a versão com a action de setup.
 
+Para projetos com caminhos diferentes, informe `requirements-file` nas duas
+actions e `tests-directory` na action de testes. Arquivos de dependências
+personalizados ausentes falham; o padrão `requirements.txt` continua opcional.
+Use `require-tests: "true"` para exigir o diretório de testes e
+`run-lint: "false"` para desativar as três verificações de lint enquanto o
+projeto prepara sua adoção. Por padrão, os testes ausentes são ignorados e o
+lint permanece habilitado. Um diretório existente sem testes falha no pytest.
+
 ## 🛠️ Como contribuir
 
 Quer colaborar? Aqui é espaço aberto!

@@ -39,3 +39,57 @@ jobs:
         uses: ./.github/actions/ci/python/test
       - name: Verify pytest ran
         run: test "$(cat .pytest-ran)" = ok
+
+  configured-consumer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create consumer fixture
+        run: |
+          mkdir -p consumer/checks consumer/failing
+          printf 'colorama==0.4.6\n' > consumer/requirements.txt
+          printf 'import colorama\n\n\ndef test_dependency():\n    assert colorama.__version__ == "0.4.6"\n' > consumer/checks/test_dependency.py
+          printf 'def test_failure():\n    assert False\n' > consumer/failing/test_failure.py
+      - name: Set up Python with custom requirements
+        uses: ./.github/actions/ci/python/setup
+        with:
+          python-version: "3.12"
+          requirements-file: consumer/requirements.txt
+      - name: Run custom tests
+        uses: ./.github/actions/ci/python/test
+        with:
+          requirements-file: consumer/requirements.txt
+          tests-directory: consumer/checks
+          require-tests: "true"
+          run-lint: "false"
+      - name: Reject missing required tests
+        id: missing-tests
+        continue-on-error: true
+        uses: ./.github/actions/ci/python/test
+        with:
+          tests-directory: consumer/missing
+          require-tests: "true"
+          run-lint: "false"
+      - name: Propagate test failures
+        id: failing-tests
+        continue-on-error: true
+        uses: ./.github/actions/ci/python/test
+        with:
+          tests-directory: consumer/failing
+          require-tests: "true"
+          run-lint: "false"
+      - name: Reject missing custom requirements
+        id: missing-requirements
+        continue-on-error: true
+        uses: ./.github/actions/ci/python/setup
+        with:
+          requirements-file: consumer/missing.txt
+      - name: Check expected failures
+        env:
+          MISSING_TESTS: ${{ steps.missing-tests.outcome }}
+          FAILING_TESTS: ${{ steps.failing-tests.outcome }}
+          MISSING_REQUIREMENTS: ${{ steps.missing-requirements.outcome }}
+        run: |
+          test "$MISSING_TESTS" = failure
+          test "$FAILING_TESTS" = failure
+          test "$MISSING_REQUIREMENTS" = failure
