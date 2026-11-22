@@ -6,6 +6,10 @@ inputs:
     description: "Python version to use"
     required: false
     default: "3.11"
+  requirements-file:
+    description: "Path to requirements file; the default is optional"
+    required: false
+    default: "requirements.txt"
 
 runs:
   using: "composite"
@@ -18,8 +22,14 @@ runs:
   
     - name: "Install Dependencies"
       shell: bash
+      env:
+        REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
       run: |
         python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then
-          pip install -r requirements.txt; fi
+        if [ -f "$REQUIREMENTS_FILE" ]; then
+          python -m pip install -r "$REQUIREMENTS_FILE"
+        elif [ "$REQUIREMENTS_FILE" != "requirements.txt" ]; then
+          echo "::error::Requirements file not found: $REQUIREMENTS_FILE"
+          exit 1
+        fi
 
