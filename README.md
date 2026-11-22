@@ -34,26 +34,27 @@ Cada linguagem/stack pode ter seu próprio conjunto de actions reunitláveis.
 
 ## 🐍 Exemplo de Uso: Python
 
-No sey projeto Python, adcine um workflow .github/workflows/ci.yml assim:
+No projeto consumidor, adicione um workflow `.github/workflows/ci.yml`:
 
 ```yaml
 name: Python CI
-
 on: [push, pull_request]
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python CI
-        uses: CodeIA-Tech/central-cicd/.github/actions/ci/python/setup@main
+      - uses: CodeIA-Tech/central-cicd/.github/actions/ci/python/setup@main
         with:
-            python-version: 3.11
- 
-     ...
+          python-version: "3.11"
+      - uses: CodeIA-Tech/central-cicd/.github/actions/ci/python/test@main
 ```
 
+As actions instalam `requirements.txt` quando presente. A action de testes
+instala e executa Flake8, Black e isort em modo de verificação, além de executar
+pytest quando existe um diretório `tests/`. Ela usa o Python ativo no runner;
+seu input `python-version` é mantido por compatibilidade e não seleciona o
+interpretador. Configure a versão com a action de setup.
 
 ## 🛠️ Como contribuir
 
