@@ -1,0 +1,41 @@
+name: Validate Python actions
+
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  consumer:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.11"
+            requirements: true
+          - python-version: "3.12"
+            requirements: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create consumer fixture
+        env:
+          HAS_REQUIREMENTS: ${{ matrix.requirements }}
+        run: |
+          mkdir -p tests
+          printf 'from pathlib import Path\n\n\ndef test_smoke():\n    Path(".pytest-ran").write_text("ok", encoding="utf-8")\n' > tests/test_smoke.py
+          if [ "$HAS_REQUIREMENTS" = "true" ]; then
+            touch requirements.txt
+          fi
+      - name: Set up Python
+        uses: ./.github/actions/ci/python/setup
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run consumer checks
+        uses: ./.github/actions/ci/python/test
+      - name: Verify pytest ran
+        run: test "$(cat .pytest-ran)" = ok
