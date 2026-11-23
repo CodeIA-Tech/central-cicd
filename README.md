@@ -19,18 +19,17 @@ Este repositório tem como objetivo:
 
 ```yaml
 .github/
-└── actions/
-    └── cd/ 
-    └── ci/
-        └── python/
-            └── setup/
-                └── action.yml
-            └── test/
-                └── action.yml
-        ...
+├── actions/
+│   └── ci/
+│       └── python/
+│           ├── setup/action.yml
+│           └── test/action.yml
+└── workflows/
+    └── python-docker-ci.yml
 ```
 
-Cada linguagem/stack pode ter seu próprio conjunto de actions reunitláveis.
+Cada linguagem/stack pode ter seu próprio conjunto de actions e workflows
+reutilizáveis.
 
 ## 🐍 Exemplo de Uso: Python
 
@@ -63,6 +62,56 @@ Use `require-tests: "true"` para exigir o diretório de testes e
 `run-lint: "false"` para desativar as três verificações de lint enquanto o
 projeto prepara sua adoção. Por padrão, os testes ausentes são ignorados e o
 lint permanece habilitado. Um diretório existente sem testes falha no pytest.
+
+## 🐳 Workflow reutilizável: Python e Docker
+
+`python-docker-ci.yml` centraliza testes Python (`unittest` ou `pytest`), build
+Docker, smoke test HTTP e publicação opcional no GHCR. A imagem publicada é
+carregada do artefato criado após os testes, evitando reconstruí-la no job de
+publicação. A publicação ocorre somente em `push` para a branch configurada;
+pull requests executam testes, build e smoke test, mas não publicam.
+
+Exemplo de consumidor:
+
+```yaml
+name: MCP CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  mcp:
+    permissions:
+      contents: read
+      packages: write
+    uses: CodeIA-Tech/central-cicd/.github/workflows/python-docker-ci.yml@<reviewed-commit-sha>
+    with:
+      python-version: "3.12"
+      requirements-file: mcp/requirements.txt
+      tests-directory: tests
+      test-runner: unittest
+      dockerfile: mcp/Dockerfile
+      build-context: .
+      image-name: ghcr.io/codeia-tech/devops-mcp
+      container-port: 8765
+      health-path: /health
+      publish-image: true
+```
+
+O workflow de consumo continua responsável pelos gatilhos. Use a saída
+`needs.mcp.outputs.image-ref` para obter a referência imutável publicada. A
+permissão `packages: write` deve ser concedida ao job consumidor quando
+`publish-image: true`; o workflow só publica na branch configurada e o job de
+testes permanece com `contents: read`. A configuração de acesso do pacote GHCR
+também deve permitir o `GITHUB_TOKEN` do repositório consumidor. Passe a
+referência de `central-cicd` por SHA completo ou release revisada, não por
+`main`. O workflow não faz deploy.
 
 ## 🛠️ Como contribuir
 

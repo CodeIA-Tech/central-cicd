@@ -93,3 +93,19 @@ jobs:
           test "$MISSING_TESTS" = failure
           test "$FAILING_TESTS" = failure
           test "$MISSING_REQUIREMENTS" = failure
+
+  reusable-container-consumer:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/python-docker-ci.yml
+    with:
+      python-version: "3.12"
+      tests-directory: .github/fixtures/python-docker/tests
+      test-runner: unittest
+      dockerfile: .github/fixtures/python-docker/Dockerfile
+      build-context: .github/fixtures/python-docker
+      image-name: ghcr.io/codeia-tech/central-cicd-reusable-test
+      container-port: 8080
+      health-path: /health
+      publish-image: false
