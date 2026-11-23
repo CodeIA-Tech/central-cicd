@@ -1,0 +1,252 @@
+name: Reusable Python Docker CI
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version used for tests
+        type: string
+        required: false
+        default: "3.12"
+      requirements-file:
+        description: Requirements file to install; the default is optional
+        type: string
+        required: false
+        default: requirements.txt
+      tests-directory:
+        description: Directory containing tests
+        type: string
+        required: false
+        default: tests
+      test-runner:
+        description: Test runner to use (unittest or pytest)
+        type: string
+        required: false
+        default: unittest
+      dockerfile:
+        description: Dockerfile path relative to the repository root
+        type: string
+        required: true
+      build-context:
+        description: Docker build context
+        type: string
+        required: false
+        default: "."
+      image-name:
+        description: Lowercase GHCR image name without a tag
+        type: string
+        required: true
+      container-port:
+        description: Container port used by the smoke test
+        type: number
+        required: false
+        default: 8765
+      health-path:
+        description: HTTP path used by the smoke test
+        type: string
+        required: false
+        default: /health
+      publish-image:
+        description: Publish the tested image on a push to publish-branch
+        type: boolean
+        required: false
+        default: false
+      publish-branch:
+        description: Branch on which the image is published
+        type: string
+        required: false
+        default: main
+    outputs:
+      image-ref:
+        description: Immutable GHCR image reference produced by the publish job
+        value: ${{ jobs.publish.outputs.image-ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out consumer
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs
+        shell: bash
+        env:
+          BUILD_CONTEXT: ${{ inputs.build-context }}
+          CONTAINER_PORT: ${{ inputs.container-port }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+          TEST_RUNNER: ${{ inputs.test-runner }}
+          TESTS_DIRECTORY: ${{ inputs.tests-directory }}
+        run: |
+          if [[ ! "$IMAGE_NAME" =~ ^ghcr\.io/[a-z0-9]+([._/-][a-z0-9]+)*$ ]]; then
+            echo "::error::image-name must be a lowercase GHCR image name without a tag"
+            exit 1
+          fi
+          if [[ "$TEST_RUNNER" != "unittest" && "$TEST_RUNNER" != "pytest" ]]; then
+            echo "::error::test-runner must be unittest or pytest"
+            exit 1
+          fi
+          if [[ ! "$CONTAINER_PORT" =~ ^[0-9]+$ ]] || (( CONTAINER_PORT < 1 || CONTAINER_PORT > 65535 )); then
+            echo "::error::container-port must be between 1 and 65535"
+            exit 1
+          fi
+          if [[ "$HEALTH_PATH" != /* ]]; then
+            echo "::error::health-path must start with /"
+            exit 1
+          fi
+          if [[ ! -f "$DOCKERFILE" ]]; then
+            echo "::error::Dockerfile not found: $DOCKERFILE"
+            exit 1
+          fi
+          if [[ ! -d "$BUILD_CONTEXT" ]]; then
+            echo "::error::Build context not found: $BUILD_CONTEXT"
+            exit 1
+          fi
+          if [[ ! -d "$TESTS_DIRECTORY" ]]; then
+            echo "::error::Tests directory not found: $TESTS_DIRECTORY"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install test dependencies
+        shell: bash
+        env:
+          REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
+          TEST_RUNNER: ${{ inputs.test-runner }}
+        run: |
+          python -m pip install --upgrade pip
+          if [[ -f "$REQUIREMENTS_FILE" ]]; then
+            python -m pip install --no-cache-dir -r "$REQUIREMENTS_FILE"
+          elif [[ "$REQUIREMENTS_FILE" != "requirements.txt" ]]; then
+            echo "::error::Requirements file not found: $REQUIREMENTS_FILE"
+            exit 1
+          fi
+          if [[ "$TEST_RUNNER" == "pytest" ]]; then
+            python -m pip install --no-cache-dir pytest
+          fi
+
+      - name: Run tests
+        shell: bash
+        env:
+          BUILD_CONTEXT: ${{ inputs.build-context }}
+          TEST_RUNNER: ${{ inputs.test-runner }}
+          TESTS_DIRECTORY: ${{ inputs.tests-directory }}
+        run: |
+          export PYTHONPATH="$BUILD_CONTEXT${PYTHONPATH:+:$PYTHONPATH}"
+          if [[ "$TEST_RUNNER" == "unittest" ]]; then
+            python -m unittest discover -s "$TESTS_DIRECTORY" -v
+          else
+            python -m pytest -- "$TESTS_DIRECTORY"
+          fi
+
+      - name: Build container image
+        shell: bash
+        env:
+          BUILD_CONTEXT: ${{ inputs.build-context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: docker build --file "$DOCKERFILE" --tag "$IMAGE_NAME:ci" "$BUILD_CONTEXT"
+
+      - name: Smoke test container
+        shell: bash
+        env:
+          CONTAINER_PORT: ${{ inputs.container-port }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          container_name="python-docker-ci-${GITHUB_RUN_ID}"
+          docker run --detach --name "$container_name" \
+            --publish "127.0.0.1:${CONTAINER_PORT}:${CONTAINER_PORT}" \
+            "$IMAGE_NAME:ci"
+          trap 'docker rm --force "$container_name" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --max-time 2 "http://127.0.0.1:${CONTAINER_PORT}${HEALTH_PATH}"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$container_name"
+          exit 1
+
+      - name: Export tested image
+        if: >-
+          inputs['publish-image'] &&
+          github.event_name == 'push' &&
+          github.ref == format('refs/heads/{0}', inputs['publish-branch'])
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          set -euo pipefail
+          docker save "$IMAGE_NAME:ci" | gzip -1 > "$RUNNER_TEMP/tested-image.tar.gz"
+
+      - name: Upload tested image
+        if: >-
+          inputs['publish-image'] &&
+          github.event_name == 'push' &&
+          github.ref == format('refs/heads/{0}', inputs['publish-branch'])
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-docker-image
+          path: ${{ runner.temp }}/tested-image.tar.gz
+          retention-days: 1
+
+  publish:
+    if: >-
+      inputs['publish-image'] &&
+      github.event_name == 'push' &&
+      github.ref == format('refs/heads/{0}', inputs['publish-branch'])
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-ref: ${{ steps.publish.outputs.image-ref }}
+    steps:
+      - name: Download tested image
+        uses: actions/download-artifact@v4
+        with:
+          name: python-docker-image
+          path: ${{ runner.temp }}
+
+      - name: Load tested image
+        run: docker load --input "$RUNNER_TEMP/tested-image.tar.gz"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Publish image
+        id: publish
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          image_tag="$IMAGE_NAME:$GITHUB_SHA"
+          docker tag "$IMAGE_NAME:ci" "$image_tag"
+          docker push "$image_tag"
+          image_ref=$(docker image inspect "$image_tag" --format '{{index .RepoDigests 0}}')
+          if [[ "$image_ref" != "$IMAGE_NAME@sha256:"* ]]; then
+            echo "::error::Could not determine the immutable image reference"
+            exit 1
+          fi
+          echo "image-ref=$image_ref" >> "$GITHUB_OUTPUT"
+          echo "Published image: \`$image_ref\`" >> "$GITHUB_STEP_SUMMARY"
